@@ -74,6 +74,10 @@ class DataArguments:
     is_multimodal: bool = False
     image_folder: Optional[str] = field(default=None)
     image_aspect_ratio: str = 'square'
+    validation_data_path: str = field(
+            default=None,
+            metadata={"help": "Path to the validation data."}
+        )
 
 
 @dataclass
@@ -779,9 +783,12 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
     train_dataset = LazySupervisedDataset(tokenizer=tokenizer,
                                 data_path=data_args.data_path,
                                 data_args=data_args)
+    eval_dataset = LazySupervisedDataset(tokenizer=tokenizer,
+                                data_path=data_args.validation_data_path,
+                                data_args=data_args)  
     data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
     return dict(train_dataset=train_dataset,
-                eval_dataset=None,
+                eval_dataset=eval_dataset,
                 data_collator=data_collator)
 
 
@@ -958,10 +965,12 @@ def train(attn_implementation=None):
 
     data_module = make_supervised_data_module(tokenizer=tokenizer,
                                               data_args=data_args)
+
     trainer = LLaVATrainer(model=model,
                     tokenizer=tokenizer,
                     args=training_args,
                     **data_module)
+
 
     if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
         trainer.train(resume_from_checkpoint=True)
@@ -985,6 +994,7 @@ def train(attn_implementation=None):
     else:
         safe_save_model_for_hf_trainer(trainer=trainer,
                                        output_dir=training_args.output_dir)
+
 
 
 if __name__ == "__main__":
