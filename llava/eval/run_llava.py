@@ -52,6 +52,9 @@ def eval_model(args):
     disable_torch_init()
 
     model_name = get_model_name_from_path(args.model_path)
+    if 'lora' not in model_name or 'task' not in model_name or 'llava-v1.5-7b' not in model_name:
+        print("Are you sure this isn't a lora model? I think it is")
+        sys.exit(1)
     tokenizer, model, image_processor, context_len = load_pretrained_model(
         args.model_path, args.model_base, model_name
     )
@@ -111,18 +114,60 @@ def eval_model(args):
         .cuda()
     )
 
+    use_cfg=False
+    if use_cfg:
+        from transformers_cfg.grammar_utils import IncrementalGrammarConstraint
+        from transformers_cfg.generation.logits_process import GrammarConstrainedLogitsProcessor
+
+        json_ebnf = """
+    root   ::= object
+
+    object ::= "{" ws ( string ":" ws value ("," ws string ":" ws value)* )? "}"
+
+    value  ::= object | array | string | number | ("true" | "false" | "null") ws
+
+    array  ::= "[" ws ( value ("," ws value)* )? "]" ws
+
+    string ::= "\"" [ \t!#-\[\]-~]* "\"" ws
+
+    number ::= ("-"? ([0-9] | [1-9] [0-9]*)) ("." [0-9]+)? ([eE] [-+]? [0-9]+)? ws
+
+
+    ws ::= ([ \t\n] ws)?
+    """
+        grammar = IncrementalGrammarConstraint(json_ebnf, "root", tokenizer)
+        grammar_processor = GrammarConstrainedLogitsProcessor(grammar)
+
+    cpu=False
     with torch.inference_mode():
-        output_ids = model.generate(
-            input_ids,
-            images=images_tensor,
-            image_sizes=image_sizes,
-            do_sample=True if args.temperature > 0 else False,
-            temperature=args.temperature,
-            top_p=args.top_p,
-            num_beams=args.num_beams,
-            max_new_tokens=args.max_new_tokens,
-            use_cache=True,
-        )
+        #breakpoint()
+        if cpu:
+            output_ids = model.to(torch.float32).generate(
+                input_ids,
+                images=images_tensor.type(torch.float32),
+                #logits_processor=[grammar_processor],
+                image_sizes=image_sizes,
+                do_sample=True if args.temperature > 0 else False,
+                temperature=args.temperature,
+                top_p=args.top_p,
+                num_beams=args.num_beams,
+                max_new_tokens=args.max_new_tokens,
+                use_cache=True,
+            )
+        else:
+            output_ids = model.generate(
+                input_ids,
+                images=images_tensor,
+                #logits_processor=[grammar_processor],
+                image_sizes=image_sizes,
+                do_sample=True if args.temperature > 0 else False,
+                temperature=args.temperature,
+                top_p=args.top_p,
+                num_beams=args.num_beams,
+                max_new_tokens=args.max_new_tokens,
+                use_cache=True,
+            )
+
 
     outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
     print(outputs)
